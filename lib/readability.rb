@@ -144,7 +144,7 @@ module Readability
           end
         end
 
-      (list_images.empty? and content != @html) ? images(@html, true) : list_images
+      list_images
     end
     
     def images_with_fqdn_uris!(source_uri)
@@ -322,10 +322,25 @@ module Readability
 
     def score_paragraphs(min_text_length)
       candidates = {}
-      @html.css("p,td").each do |elem|
+      @html.css("p,td,img").each do |elem|
         parent_node = elem.parent
         grand_parent_node = parent_node.respond_to?(:parent) ? parent_node.parent : nil
         inner_text = elem.text
+
+        if elem.name == "img"
+          w, h = 1, 1
+          w = elem.attribute("width").value.to_i unless elem.attribute("width").nil?
+          h = elem.attribute("height").value.to_i unless elem.attribute("height").nil?
+
+          content_score = 5
+          content_score += [((w/200) * (h/200)).to_i, 3].min
+
+          candidates[parent_node] ||= score_node(parent_node)
+          candidates[grand_parent_node] ||= score_node(grand_parent_node) if grand_parent_node
+
+          candidates[parent_node][:content_score] += content_score
+          candidates[grand_parent_node][:content_score] += content_score / 2.0 if grand_parent_node
+        end
 
         # If this paragraph is less than 25 characters, don't even count it.
         next if inner_text.length < min_text_length
@@ -339,12 +354,6 @@ module Readability
 
         candidates[parent_node][:content_score] += content_score
         candidates[grand_parent_node][:content_score] += content_score / 2.0 if grand_parent_node
-      end
-
-      # Scale the final candidates score based on link density. Good content should have a
-      # relatively small link density (5% or less) and be mostly unaffected by this operation.
-      candidates.each do |elem, candidate|
-        candidate[:content_score] = candidate[:content_score] * (1 - get_link_density(elem))
       end
 
       candidates
@@ -544,11 +553,11 @@ module Readability
 
     def remove_blacklist_domain_link(node)
       if @options[:blacklist_domain]
-        node.xpath("//a/img").each do |elem|
-          next if elem.attribute("src").nil?
+        node.xpath("//a").each do |elem|
+          next if elem.attribute("href").nil?
           @options[:blacklist_domain].each do |domain|
-            if elem.attribute("src").value.include? domain
-              node.xpath("//img[@src=\"#{elem.attribute("src")}\"]").remove
+            if elem.attribute("href").value.include? domain
+              node.xpath("//a[@href=\"#{elem.attribute("href")}\"]").remove
             end
           end
         end
